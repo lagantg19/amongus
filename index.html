@@ -1,79 +1,76 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Among Us Voting</title>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
 <style>
-body{
-  margin:0;
-  background:#0b132b;
-  color:#fff;
-  font-family:Arial,sans-serif;
-  text-align:center;
-}
-.hidden{display:none}
-button,input{
-  padding:12px;
-  margin:6px;
-  width:90%;
-  max-width:280px;
-}
-.grid{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(90px,1fr));
-  gap:8px;
-  padding:8px;
-}
-.card{
-  background:#1c2541;
-  border-radius:12px;
-  padding:8px;
-  position:relative;
-}
-.dead{opacity:0.35}
-.timer{color:#ffd166;font-size:18px;margin:8px}
-
-.vote-card{
-  cursor:pointer;
-  border:2px solid transparent;
-}
-.vote-card.selected{
-  border-color:#4caf50;
-}
-.tick{
-  position:absolute;
-  top:6px;
-  right:8px;
-  font-size:16px;
-  color:#4caf50;
+body {
+  margin: 0;
+  background: #0b132b;
+  color: white;
+  font-family: Arial, sans-serif;
+  text-align: center;
 }
 
-.crewmate{
-  width:48px;
-  margin:auto;
-  animation:float 1.6s ease-in-out infinite;
-}
-@keyframes float{
-  0%{transform:translateY(0)}
-  50%{transform:translateY(-5px)}
-  100%{transform:translateY(0)}
-}
-.eject{
-  animation:eject 1.8s forwards;
-}
-@keyframes eject{
-  0%{transform:translate(0,0) scale(1);opacity:1}
-  100%{transform:translate(120px,-180px) scale(0);opacity:0}
+.hidden { display: none; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 10px;
+  padding: 10px;
 }
 
-.vote-icons{
-  font-size:10px;
-  margin-top:4px;
+.card {
+  background: #1c2541;
+  border-radius: 12px;
+  padding: 8px;
+  position: relative;
+}
+
+.vote-card {
+  cursor: pointer;
+  border: 2px solid transparent;
+}
+.vote-card.selected {
+  border-color: #4caf50;
+}
+
+.crewmate {
+  width: 50px;
+  margin: auto;
+  animation: float 1.5s ease-in-out infinite;
+}
+
+@keyframes float {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+  100% { transform: translateY(0); }
+}
+
+.vote-icons {
+  font-size: 10px;
+  margin-top: 4px;
+}
+
+.timer {
+  font-size: 18px;
+  color: #ffd166;
+}
+
+.eject {
+  animation: eject 2s forwards;
+}
+@keyframes eject {
+  to {
+    transform: translate(120px, -200px) scale(0);
+    opacity: 0;
+  }
 }
 </style>
 </head>
@@ -83,26 +80,14 @@ button,input{
 <h2>🚨 Emergency Meeting</h2>
 
 <div id="joinScreen">
-  <input id="nameInput" placeholder="Enter name">
+  <input id="nameInput" placeholder="Enter name" />
   <button onclick="join()">Join</button>
 </div>
 
-<div id="lobbyScreen" class="hidden">
-  <h3>Lobby</h3>
-  <div id="lobbyGrid" class="grid"></div>
-  <button id="startBtn" class="hidden" onclick="start()">Start Voting</button>
-</div>
-
-<div id="voteScreen" class="hidden">
+<div id="mainScreen" class="hidden">
   <div class="timer" id="timer"></div>
-  <div id="voteGrid" class="grid"></div>
-  <div id="voteButtons"></div>
-</div>
-
-<div id="resultScreen" class="hidden">
-  <h3 id="resultText"></h3>
-  <div id="resultGrid" class="grid"></div>
-  <button onclick="nextRound()">Next Round</button>
+  <div id="grid" class="grid"></div>
+  <div id="action"></div>
 </div>
 
 <script>
@@ -116,277 +101,170 @@ firebase.initializeApp({
   messagingSenderId: "345866430610",
   appId: "1:345866430610:web:fb4c24d7533496e2751e4b"
 });
-const db=firebase.database();
+const db = firebase.database();
 
 // ================= ROOM =================
-const roomId=location.hash.slice(1)||Math.random().toString(36).slice(2,7);
-location.hash=roomId;
-const room=`rooms/${roomId}`;
+const roomId = location.hash.slice(1) || Math.random().toString(36).slice(2,7);
+location.hash = roomId;
+const room = `rooms/${roomId}`;
 
-// ================= STATE =================
-let me=null,isHost=false,players={},timerInt=null,selectedVote=null,finalized=false;
+let me = null;
+let isHost = false;
+let players = {};
+let phase = "LOBBY";
+let timerInt = null;
 
 // ================= CREWMATE =================
-function crewmate(color){
+function crewmate(color) {
   return `
-  <svg class="crewmate" viewBox="0 0 200 300">
-    <ellipse cx="100" cy="150" rx="70" ry="90" fill="${color}"/>
-    <ellipse cx="130" cy="90" rx="45" ry="30" fill="#bdefff"/>
-    <ellipse cx="130" cy="90" rx="35" ry="20" fill="#e8f8ff"/>
-  </svg>`;
+    <svg class="crewmate" viewBox="0 0 200 300">
+      <ellipse cx="100" cy="150" rx="70" ry="90" fill="${color}" />
+      <ellipse cx="130" cy="90" rx="40" ry="25" fill="#ccefff" />
+    </svg>`;
 }
 
 // ================= JOIN =================
-function join(){
-  const name=nameInput.value.trim();
-  if(!name) return alert("Enter name");
-  me=name;
+function join() {
+  const name = nameInput.value.trim();
+  if (!name) return;
 
-  db.ref(`${room}/phase`).once("value",s=>{
-    if(s.exists() && s.val()!=="LOBBY"){
-      joinScreen.innerHTML="<h3>Room Closed</h3>";
-      return;
+  me = name;
+
+  db.ref(`${room}/players/${name}`).set({
+    color: `hsl(${Math.random()*360},70%,60%)`
+  });
+  db.ref(`${room}/players/${name}`).onDisconnect().remove();
+
+  db.ref(`${room}/host`).once("value", s => {
+    if (!s.exists()) db.ref(`${room}/host`).set(name);
+  });
+
+  db.ref(`${room}/phase`).set("DISCUSS");
+
+  joinScreen.classList.add("hidden");
+  mainScreen.classList.remove("hidden");
+}
+
+// ================= LISTENERS =================
+db.ref(`${room}/players`).on("value", s => {
+  players = s.val() || {};
+  render();
+});
+
+db.ref(`${room}/host`).on("value", s => {
+  isHost = s.val() === me;
+});
+
+db.ref(`${room}/phase`).on("value", s => {
+  phase = s.val();
+  render();
+});
+
+db.ref(`${room}/time`).on("value", s => {
+  if (typeof s.val() === "number")
+    timer.innerText = `Time: ${s.val()}`;
+});
+
+// ================= RENDER =================
+function render() {
+  grid.innerHTML = "";
+  action.innerHTML = "";
+
+  Object.entries(players).forEach(([name,p]) => {
+    const card = document.createElement("div");
+    card.className = "card vote-card";
+    card.innerHTML = `
+      ${crewmate(p.color)}
+      <div>${name}</div>
+      <div class="vote-icons" id="votes-${name}"></div>
+    `;
+
+    if (phase === "VOTE") {
+      card.onclick = () => vote(name, card);
     }
 
-    db.ref(`${room}/players/${name}`).set({
-      alive:true,
-      color:`hsl(${Math.random()*360},70%,60%)`
-    });
-    db.ref(`${room}/players/${name}`).onDisconnect().remove();
-
-    db.ref(`${room}/host`).once("value",h=>{
-      if(!h.exists()) db.ref(`${room}/host`).set(name);
-    });
-
-    db.ref(`${room}/phase`).set("LOBBY");
-    joinScreen.classList.add("hidden");
-    lobbyScreen.classList.remove("hidden");
+    grid.appendChild(card);
   });
+
+  // SKIP CARD
+  if (phase === "VOTE" || phase === "REVEAL") {
+    const skip = document.createElement("div");
+    skip.className = "card vote-card";
+    skip.innerHTML = `<div>SKIP</div><div id="votes-SKIP"></div>`;
+    if (phase === "VOTE") skip.onclick = () => vote("SKIP", skip);
+    grid.appendChild(skip);
+  }
+
+  if (phase === "DISCUSS" && isHost) {
+    action.innerHTML = `<button onclick="startVote()">Start Voting</button>`;
+  }
 }
 
-// ================= HOST =================
-db.ref(`${room}/host`).on("value",s=>{
-  isHost=s.val()===me;
-  startBtn.classList.toggle("hidden",!isHost);
-});
-
-// ================= PLAYERS =================
-db.ref(`${room}/players`).on("value",s=>{
-  players=s.val()||{};
-  renderLobby();
-});
-
-function renderLobby(){
-  lobbyGrid.innerHTML="";
-  Object.entries(players).forEach(([n,p])=>{
-    lobbyGrid.innerHTML+=`
-      <div class="card ${p.alive?"":"dead"}">
-        ${crewmate(p.color)}
-        <div>${n}</div>
-      </div>`;
-  });
-}
-
-// ================= START =================
-function start(){
-  if(!isHost) return;
-  finalized=false;
-  db.ref(room).update({
-    phase:"VOTE",
-    time:15,
-    votes:{},
-    result:null,
-    ready:{}
-  });
-  startTimer(15);
+// ================= DISCUSS → VOTE =================
+function startVote() {
+  startTimer(15, "VOTE");
 }
 
 // ================= TIMER =================
-function startTimer(t){
+function startTimer(seconds, nextPhase) {
   clearInterval(timerInt);
-  db.ref(`${room}/time`).set(t);
-  timerInt=setInterval(()=>{
-    t--;
-    db.ref(`${room}/time`).set(t);
-    if(t<=0){
+  db.ref(`${room}/time`).set(seconds);
+  db.ref(`${room}/phase`).set(nextPhase);
+
+  timerInt = setInterval(() => {
+    seconds--;
+    db.ref(`${room}/time`).set(seconds);
+    if (seconds <= 0) {
       clearInterval(timerInt);
-      finalize();
+      if (nextPhase === "VOTE") revealVotes();
     }
-  },1000);
+  }, 1000);
 }
-
-db.ref(`${room}/time`).on("value",s=>{
-  if(typeof s.val()==="number")
-    timer.innerText=`Time: ${s.val()}`;
-});
-
-// ================= PHASE =================
-db.ref(`${room}/phase`).on("value",s=>{
-  const p=s.val();
-  if(!p) return;
-
-  lobbyScreen.classList.add("hidden");
-  voteScreen.classList.add("hidden");
-  resultScreen.classList.add("hidden");
-
-  if(p==="VOTE"){
-    voteScreen.classList.remove("hidden");
-    renderVoteCards();
-    watchVotesForEarlyFinish();
-  }
-  if(p==="RESULT"){
-    resultScreen.classList.remove("hidden");
-    showResult();
-  }
-});
 
 // ================= VOTING =================
-function renderVoteCards(){
-  voteGrid.innerHTML="";
-  voteButtons.innerHTML="";
-  selectedVote=null;
-
-  Object.entries(players).forEach(([n,p])=>{
-    if(!p.alive) return;
-
-    const card=document.createElement("div");
-    card.className="card vote-card";
-    card.onclick=()=>selectVote(n,card);
-    card.innerHTML=`
-      ${crewmate(p.color)}
-      <div>${n}</div>
-      <div class="tick hidden">✔</div>
-    `;
-    voteGrid.appendChild(card);
-  });
-
-  const skip=document.createElement("div");
-  skip.className="card vote-card";
-  skip.onclick=()=>selectVote("SKIP",skip);
-  skip.innerHTML=`<div>SKIP</div><div class="tick hidden">✔</div>`;
-  voteGrid.appendChild(skip);
-}
-
-function selectVote(target,card){
-  document.querySelectorAll(".vote-card").forEach(c=>{
-    c.classList.remove("selected");
-    c.querySelector(".tick").classList.add("hidden");
-  });
+function vote(target, card) {
+  db.ref(`${room}/votes/${me}`).set(target);
+  document.querySelectorAll(".vote-card").forEach(c => c.classList.remove("selected"));
   card.classList.add("selected");
-  card.querySelector(".tick").classList.remove("hidden");
-  selectedVote=target;
-  voteButtons.innerHTML=`<button onclick="submitVote()">Confirm Vote</button>`;
 }
 
-function submitVote(){
-  if(!selectedVote) return;
-  db.ref(`${room}/votes/${me}`).set(selectedVote);
-  voteButtons.innerHTML="<p>VOTED</p>";
+// ================= REVEAL =================
+function revealVotes() {
+  db.ref(`${room}/phase`).set("REVEAL");
+
+  db.ref(`${room}/votes`).once("value", snap => {
+    const votes = snap.val() || {};
+    Object.entries(votes).forEach(([voter,target]) => {
+      const el = document.getElementById(`votes-${target}`);
+      if (el) el.innerText += "🧑";
+    });
+
+    setTimeout(eject, 7000);
+  });
 }
 
-// ================= EARLY FINISH =================
-function watchVotesForEarlyFinish(){
-  if(!isHost) return;
-  db.ref(`${room}/votes`).on("value", snap=>{
-    if(finalized) return;
-    const votes=snap.val()||{};
-    const aliveCount=Object.values(players).filter(p=>p.alive).length;
-    if(Object.keys(votes).length>=aliveCount){
-      clearInterval(timerInt);
-      finalize();
+// ================= EJECTION =================
+function eject() {
+  db.ref(`${room}/phase`).set("EJECT");
+
+  db.ref(`${room}/votes`).once("value", snap => {
+    const votes = snap.val() || {};
+    const counts = {};
+    Object.values(votes).forEach(v => counts[v] = (counts[v]||0)+1);
+
+    const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+    const winner =
+      sorted.length > 1 && sorted[0][1] === sorted[1][1] ? null :
+      sorted[0]?.[0] === "SKIP" ? null :
+      sorted[0]?.[0];
+
+    if (winner) {
+      document.querySelectorAll(".card").forEach(c=>{
+        if (c.innerText.includes(winner)) c.classList.add("eject");
+      });
     }
   });
 }
-
-// ================= RESULT LOGIC =================
-function calculateWinner(votes){
-  const counts={};
-  Object.values(votes).forEach(v=>counts[v]=(counts[v]||0)+1);
-  const arr=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
-  if(arr.length===0) return null;
-  const [top,tcount]=arr[0];
-  const second=arr[1]?.[1]??0;
-  if(tcount===second||top==="SKIP") return null;
-  return top;
-}
-
-function finalize(){
-  if(!isHost||finalized) return;
-  finalized=true;
-
-  db.ref(`${room}/votes`).off();
-
-  db.ref(`${room}/votes`).once("value",s=>{
-    const votes=s.val()||{};
-    const winner=calculateWinner(votes);
-    if(winner) players[winner].alive=false;
-
-    db.ref(room).update({
-      players,
-      result:{winner},
-      phase:"RESULT"
-    });
-  });
-}
-
-// ================= SHOW RESULT =================
-function showResult(){
-  resultGrid.innerHTML="";
-  resultText.innerText="Votes revealed";
-
-  Promise.all([
-    db.ref(`${room}/players`).once("value"),
-    db.ref(`${room}/votes`).once("value"),
-    db.ref(`${room}/result`).once("value")
-  ]).then(([pSnap,vSnap,rSnap])=>{
-    const freshPlayers=pSnap.val()||{};
-    const votes=vSnap.val()||{};
-    const winner=rSnap.val()?.winner||null;
-
-    const voteMap={};
-    Object.entries(votes).forEach(([voter,target])=>{
-      if(!voteMap[target]) voteMap[target]=[];
-      voteMap[target].push(voter);
-    });
-
-    Object.entries(freshPlayers).forEach(([n,p])=>{
-      const icons=(voteMap[n]||[]).map(()=>`🧑`).join("");
-      resultGrid.innerHTML+=`
-        <div class="card">
-          ${crewmate(p.color)}
-          <div>${n}</div>
-          <div class="vote-icons">${icons}</div>
-        </div>`;
-    });
-
-    setTimeout(()=>{
-      resultText.innerText=winner
-        ? `${winner} was ejected`
-        : "No one was ejected";
-
-      if(winner){
-        [...resultGrid.children].forEach(c=>{
-          if(c.innerText.includes(winner)) c.classList.add("eject");
-        });
-      }
-    },7000);
-  });
-}
-
-// ================= NEXT ROUND =================
-function nextRound(){
-  db.ref(`${room}/ready/${me}`).set(true);
-
-  if(isHost){
-    db.ref(`${room}/ready`).on("value",snap=>{
-      const ready=snap.val()||{};
-      if(Object.keys(ready).length>=Object.keys(players).length){
-        db.ref(room).remove().then(()=>location.reload());
-      }
-    });
-  }
-}
 </script>
-
 </body>
 </html>
