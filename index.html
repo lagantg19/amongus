@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Among Us – Voting</title>
+<title>Among Us Voting</title>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
@@ -33,9 +33,25 @@ button,input{
   background:#1c2541;
   border-radius:14px;
   padding:10px;
+  position:relative;
 }
 .dead{opacity:0.35}
 .timer{color:#ffd166;font-size:20px;margin:10px}
+
+.vote-card{
+  cursor:pointer;
+  border:2px solid transparent;
+}
+.vote-card.selected{
+  border-color:#4caf50;
+}
+.tick{
+  position:absolute;
+  top:6px;
+  right:8px;
+  font-size:18px;
+  color:#4caf50;
+}
 
 .crewmate{
   width:60px;
@@ -103,9 +119,9 @@ location.hash=roomId;
 const room=`rooms/${roomId}`;
 
 // ================= STATE =================
-let me=null,isHost=false,players={},timerInt=null;
+let me=null,isHost=false,players={},timerInt=null,selectedVote=null;
 
-// ================= CREWMATE SVG =================
+// ================= CREWMATE =================
 function crewmate(color){
   return `
   <svg class="crewmate" viewBox="0 0 200 300">
@@ -208,8 +224,7 @@ db.ref(`${room}/phase`).on("value",s=>{
 
   if(p==="VOTE"){
     voteScreen.classList.remove("hidden");
-    render(voteGrid);
-    showVoteButtons();
+    renderVoteCards();
   }
   if(p==="RESULT"){
     resultScreen.classList.remove("hidden");
@@ -218,35 +233,69 @@ db.ref(`${room}/phase`).on("value",s=>{
 });
 
 // ================= VOTING =================
-function showVoteButtons(){
+function renderVoteCards(){
+  voteGrid.innerHTML="";
   voteButtons.innerHTML="";
+  selectedVote=null;
+
   Object.entries(players).forEach(([n,p])=>{
-    if(n!==me && p.alive)
-      voteButtons.innerHTML+=`<button onclick="vote('${n}')">${n}</button>`;
+    if(!p.alive||n===me) return;
+
+    const card=document.createElement("div");
+    card.className="card vote-card";
+    card.onclick=()=>selectVote(n,card);
+    card.innerHTML=`
+      ${crewmate(p.color)}
+      <div>${n}</div>
+      <div class="tick hidden">✔</div>
+    `;
+    voteGrid.appendChild(card);
   });
-  voteButtons.innerHTML+=`<button onclick="vote('SKIP')">Skip</button>`;
+
+  const skip=document.createElement("div");
+  skip.className="card vote-card";
+  skip.onclick=()=>selectVote("SKIP",skip);
+  skip.innerHTML=`<div>SKIP</div><div class="tick hidden">✔</div>`;
+  voteGrid.appendChild(skip);
 }
 
-function vote(t){
-  db.ref(`${room}/votes/${me}`).set(t);
-  voteButtons.innerHTML="<p>Voted</p>";
+function selectVote(target,card){
+  document.querySelectorAll(".vote-card").forEach(c=>{
+    c.classList.remove("selected");
+    c.querySelector(".tick").classList.add("hidden");
+  });
+  card.classList.add("selected");
+  card.querySelector(".tick").classList.remove("hidden");
+  selectedVote=target;
+
+  voteButtons.innerHTML=`<button onclick="submitVote()">Confirm Vote</button>`;
 }
 
-// ================= RESULT =================
+function submitVote(){
+  if(!selectedVote) return;
+  db.ref(`${room}/votes/${me}`).set(selectedVote);
+  voteButtons.innerHTML="<p>VOTED</p>";
+}
+
+// ================= RESULT LOGIC =================
+function calculateWinner(votes){
+  const counts={};
+  Object.values(votes).forEach(v=>counts[v]=(counts[v]||0)+1);
+  const arr=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  if(arr.length===0) return null;
+  const [top,tcount]=arr[0];
+  const second=arr[1]?.[1]??0;
+  if(tcount===second||top==="SKIP") return null;
+  return top;
+}
+
 function finalize(){
   if(!isHost) return;
 
   db.ref(`${room}/votes`).once("value",s=>{
-    const v=s.val()||{},count={};
-    Object.values(v).forEach(x=>count[x]=(count[x]||0)+1);
+    const votes=s.val()||{};
+    const winner=calculateWinner(votes);
 
-    let max=0,winner=null,tie=false;
-    Object.entries(count).forEach(([k,c])=>{
-      if(c>max){max=c;winner=k;tie=false}
-      else if(c===max){tie=true}
-    });
-
-    if(tie||winner==="SKIP") winner=null;
     if(winner) players[winner].alive=false;
 
     db.ref(room).update({
@@ -260,17 +309,17 @@ function finalize(){
 // ================= SHOW RESULT =================
 function showResult(){
   resultGrid.innerHTML="";
-  Object.entries(players).forEach(([n,p])=>{
-    resultGrid.innerHTML+=`
-      <div class="card ${n===dbWinner?"eject":""}">
-        ${crewmate(p.color)}
-        <div>${n}</div>
-      </div>`;
-  });
-
   db.ref(`${room}/result`).once("value",s=>{
     const w=s.val()?.winner;
     resultText.innerText=w?`${w} was ejected`:"No one was ejected";
+
+    Object.entries(players).forEach(([n,p])=>{
+      resultGrid.innerHTML+=`
+        <div class="card ${n===w?"eject":""}">
+          ${crewmate(p.color)}
+          <div>${n}</div>
+        </div>`;
+    });
   });
 }
 
