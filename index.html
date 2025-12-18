@@ -1,78 +1,80 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Among Us Voting</title>
+
+<!-- ================= FORCE HARD REFRESH (NO CACHE) ================= -->
+<script>
+(function forceNoCache(){
+  const url = new URL(window.location.href);
+  const hash = window.location.hash;
+  if(!url.searchParams.has("nocache")){
+    url.searchParams.set("nocache", Date.now());
+    window.location.replace(url.pathname + "?" + url.searchParams + hash);
+  }
+})();
+</script>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
 <style>
-body {
-  margin: 0;
-  background: #0b132b;
-  color: white;
-  font-family: Arial, sans-serif;
-  text-align: center;
+body{
+  margin:0;
+  background:#0b132b;
+  color:#fff;
+  font-family:Arial,sans-serif;
+  text-align:center;
+}
+.hidden{display:none}
+
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(90px,1fr));
+  gap:10px;
+  padding:10px;
 }
 
-.hidden { display: none; }
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
-  gap: 10px;
-  padding: 10px;
+.card{
+  background:#1c2541;
+  border-radius:12px;
+  padding:8px;
 }
 
-.card {
-  background: #1c2541;
-  border-radius: 12px;
-  padding: 8px;
+.vote-card{
+  cursor:pointer;
+  border:2px solid transparent;
+}
+.vote-card.selected{
+  border-color:#4caf50;
 }
 
-.vote-card {
-  cursor: pointer;
-  border: 2px solid transparent;
+.crewmate{width:50px;margin:auto}
+.mini{width:16px;display:inline-block;margin:2px}
+
+.vote-icons{margin-top:4px}
+
+.timer{font-size:18px;color:#ffd166}
+
+.eject{
+  animation:eject 2s forwards;
 }
-.vote-card.selected {
-  border-color: #4caf50;
+@keyframes eject{
+  to{transform:translate(120px,-200px) scale(0);opacity:0}
 }
 
-.timer {
-  font-size: 18px;
-  color: #ffd166;
+button,input{
+  padding:12px;
+  width:90%;
+  max-width:280px;
+  margin:6px;
 }
 
-.crewmate {
-  width: 50px;
-  margin: auto;
-}
-
-.mini {
-  width: 16px;
-  display: inline-block;
-  margin: 2px;
-}
-
-.vote-icons {
-  margin-top: 4px;
-}
-
-.eject {
-  animation: eject 2s forwards;
-}
-@keyframes eject {
-  to {
-    transform: translate(120px, -200px) scale(0);
-    opacity: 0;
-  }
-}
-
-@media (max-width:600px){
-  .grid { grid-template-columns: repeat(auto-fit, minmax(80px,1fr)); }
-  button { width:95%; font-size:16px; }
+@media(max-width:600px){
+  .grid{grid-template-columns:repeat(auto-fit,minmax(80px,1fr))}
+  button{font-size:16px}
 }
 </style>
 </head>
@@ -82,17 +84,21 @@ body {
 <h2>🚨 Emergency Meeting</h2>
 
 <div id="joinScreen">
-  <input id="nameInput" placeholder="Enter name" />
+  <input id="nameInput" placeholder="Enter name">
   <button onclick="join()">Join</button>
 </div>
 
 <div id="mainScreen" class="hidden">
-  <div class="timer" id="timer"></div>
+  <div id="timer" class="timer"></div>
   <div id="grid" class="grid"></div>
   <div id="action"></div>
 </div>
 
 <script>
+// ================= VERSION =================
+const APP_VERSION = "v1.3.0";
+console.log("Running version:", APP_VERSION);
+
 // ================= FIREBASE =================
 firebase.initializeApp({
   apiKey: "AIzaSyBVF5JW7IyGRvKrX7xwOTdEPg4019s3Bn0",
@@ -103,25 +109,25 @@ firebase.initializeApp({
   messagingSenderId: "345866430610",
   appId: "1:345866430610:web:fb4c24d7533496e2751e4b"
 });
-const db = firebase.database();
+const db=firebase.database();
 
 // ================= CONSTANTS =================
-const COLORS = [
+const COLORS=[
   "#e74c3c","#3498db","#2ecc71","#f1c40f",
   "#9b59b6","#e67e22","#1abc9c","#ecf0f1",
   "#7f8c8d","#e84393"
 ];
 
 // ================= ROOM =================
-const roomId = location.hash.slice(1) || Math.random().toString(36).slice(2,7);
-location.hash = roomId;
-const room = `rooms/${roomId}`;
+const roomId=location.hash.slice(1)||Math.random().toString(36).slice(2,7);
+location.hash=roomId;
+const room=`rooms/${roomId}`;
 
 let me=null,isHost=false,players={},phase="DISCUSS";
 let selectedVote=null,timerInt=null;
 
 // ================= CREWMATE SVG =================
-function crewmate(color, cls="crewmate"){
+function crewmate(color,cls="crewmate"){
   return `
   <svg class="${cls}" viewBox="0 0 200 300">
     <ellipse cx="100" cy="150" rx="70" ry="90" fill="${color}"/>
@@ -131,20 +137,19 @@ function crewmate(color, cls="crewmate"){
 
 // ================= JOIN =================
 function join(){
-  const name = nameInput.value.trim();
-  if(!name) return;
-  me = name;
+  const name=nameInput.value.trim();
+  if(!name)return;
+  me=name;
 
-  db.ref(`${room}/players`).once("value", snap=>{
-    const existing = snap.val() || {};
-    const usedColors = Object.values(existing).map(p=>p.color);
-    const color = COLORS.find(c=>!usedColors.includes(c));
+  db.ref(`${room}/players`).once("value",snap=>{
+    const used=Object.values(snap.val()||{}).map(p=>p.color);
+    const color=COLORS.find(c=>!used.includes(c));
 
-    db.ref(`${room}/players/${name}`).set({ color });
+    db.ref(`${room}/players/${name}`).set({color});
     db.ref(`${room}/players/${name}`).onDisconnect().remove();
 
-    db.ref(`${room}/host`).once("value", h=>{
-      if(!h.exists()) db.ref(`${room}/host`).set(name);
+    db.ref(`${room}/host`).once("value",h=>{
+      if(!h.exists())db.ref(`${room}/host`).set(name);
     });
 
     db.ref(`${room}/phase`).set("DISCUSS");
@@ -155,24 +160,18 @@ function join(){
 }
 
 // ================= LISTENERS =================
-db.ref(`${room}/players`).on("value", s=>{
-  players = s.val() || {};
+db.ref(`${room}/players`).on("value",s=>{
+  players=s.val()||{};
   render();
 });
-
-db.ref(`${room}/host`).on("value", s=>{
-  isHost = s.val() === me;
-});
-
-db.ref(`${room}/phase`).on("value", s=>{
-  phase = s.val();
+db.ref(`${room}/host`).on("value",s=>isHost=s.val()===me);
+db.ref(`${room}/phase`).on("value",s=>{
+  phase=s.val();
   render();
 });
-
-db.ref(`${room}/time`).on("value", s=>{
-  if(typeof s.val()==="number"){
-    timer.innerText = `Time: ${s.val()}`;
-  }
+db.ref(`${room}/time`).on("value",s=>{
+  if(typeof s.val()==="number")
+    timer.innerText=`Time: ${s.val()}`;
 });
 
 // ================= RENDER =================
@@ -188,15 +187,10 @@ function render(){
       <div>${name}</div>
       <div class="vote-icons" id="votes-${name}"></div>
     `;
-
-    if(phase==="VOTE"){
-      card.onclick=()=>selectVote(name,card);
-    }
-
+    if(phase==="VOTE")card.onclick=()=>selectVote(name,card);
     grid.appendChild(card);
   });
 
-  // SKIP CARD
   if(["VOTE","REVEAL"].includes(phase)){
     const skip=document.createElement("div");
     skip.className="card vote-card";
@@ -204,24 +198,19 @@ function render(){
       <div>SKIP</div>
       <div class="vote-icons" id="votes-SKIP"></div>
     `;
-    if(phase==="VOTE"){
-      skip.onclick=()=>selectVote("SKIP",skip);
-    }
+    if(phase==="VOTE")skip.onclick=()=>selectVote("SKIP",skip);
     grid.appendChild(skip);
   }
 
-  if(phase==="DISCUSS" && isHost){
+  if(phase==="DISCUSS"&&isHost){
     action.innerHTML=`<button onclick="startVote()">Start Voting</button>`;
   }
-
   if(phase==="VOTE"){
     action.innerHTML=`<button onclick="confirmVote()">Confirm Vote</button>`;
   }
-
   if(phase==="REVEAL"){
     renderVoteReveal();
   }
-
   if(phase==="END"){
     action.innerHTML=`<button onclick="nextRound()">Next Round</button>`;
   }
@@ -233,9 +222,8 @@ function selectVote(target,card){
   document.querySelectorAll(".vote-card").forEach(c=>c.classList.remove("selected"));
   card.classList.add("selected");
 }
-
 function confirmVote(){
-  if(!selectedVote) return;
+  if(!selectedVote)return;
   db.ref(`${room}/votes/${me}`).set(selectedVote);
   action.innerHTML=`<div>VOTED ✔</div>`;
 }
@@ -256,7 +244,7 @@ function startTimer(sec,next){
     db.ref(`${room}/time`).set(sec);
     if(sec<=0){
       clearInterval(timerInt);
-      if(next==="VOTE") revealVotes();
+      if(next==="VOTE")revealVotes();
     }
   },1000);
 }
@@ -267,14 +255,14 @@ function revealVotes(){
   setTimeout(eject,7000);
 }
 
-// ================= RENDER VOTE REVEAL (FOR ALL) =================
+// ================= RENDER VOTE REVEAL (ALL DEVICES) =================
 function renderVoteReveal(){
-  db.ref(`${room}/votes`).once("value", snap=>{
+  db.ref(`${room}/votes`).once("value",snap=>{
     const votes=snap.val()||{};
     Object.entries(votes).forEach(([voter,target])=>{
       const color=players[voter]?.color;
       const el=document.getElementById(`votes-${target}`);
-      if(el && color){
+      if(el&&color){
         el.innerHTML+=crewmate(color,"mini");
       }
     });
@@ -285,22 +273,20 @@ function renderVoteReveal(){
 function eject(){
   db.ref(`${room}/phase`).set("EJECT");
 
-  db.ref(`${room}/votes`).once("value", snap=>{
+  db.ref(`${room}/votes`).once("value",snap=>{
     const counts={};
     Object.values(snap.val()||{}).forEach(v=>counts[v]=(counts[v]||0)+1);
-
     const arr=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
-    const winner =
-      arr.length>1 && arr[0][1]===arr[1][1] ? null :
-      arr[0]?.[0]==="SKIP" ? null :
+    const winner=
+      arr.length>1&&arr[0][1]===arr[1][1]?null:
+      arr[0]?.[0]==="SKIP"?null:
       arr[0]?.[0];
 
     if(winner){
       [...grid.children].forEach(c=>{
-        if(c.innerText.includes(winner)) c.classList.add("eject");
+        if(c.innerText.includes(winner))c.classList.add("eject");
       });
     }
-
     setTimeout(()=>db.ref(`${room}/phase`).set("END"),2500);
   });
 }
@@ -309,7 +295,7 @@ function eject(){
 function nextRound(){
   db.ref(`${room}/ready/${me}`).set(true);
   if(isHost){
-    db.ref(`${room}/ready`).on("value", snap=>{
+    db.ref(`${room}/ready`).on("value",snap=>{
       if(Object.keys(snap.val()||{}).length>=Object.keys(players).length){
         db.ref(room).remove().then(()=>location.reload());
       }
