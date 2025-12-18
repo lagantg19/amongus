@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Among Us – Voting</title>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<style>
+body{
+  margin:0;
+  background:#0b132b;
+  color:#fff;
+  font-family:Arial,sans-serif;
+  text-align:center;
+}
+.hidden{display:none}
+button,input{
+  padding:12px;
+  margin:6px;
+  width:90%;
+  max-width:280px;
+}
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(120px,1fr));
+  gap:10px;
+  padding:10px;
+}
+.card{
+  background:#1c2541;
+  border-radius:14px;
+  padding:10px;
+}
+.dead{opacity:0.35}
+.timer{color:#ffd166;font-size:20px;margin:10px}
+
+.crewmate{
+  width:60px;
+  margin:auto;
+  animation:float 1.6s ease-in-out infinite;
+}
+@keyframes float{
+  0%{transform:translateY(0)}
+  50%{transform:translateY(-6px)}
+  100%{transform:translateY(0)}
+}
+.eject{
+  animation:eject 1.8s forwards;
+}
+@keyframes eject{
+  0%{transform:translate(0,0) scale(1);opacity:1}
+  100%{transform:translate(120px,-180px) scale(0);opacity:0}
+}
+</style>
+</head>
+
+<body>
+
+<h2>🚨 Emergency Meeting</h2>
+
+<div id="joinScreen">
+  <input id="nameInput" placeholder="Enter name">
+  <button onclick="join()">Join</button>
+</div>
+
+<div id="lobbyScreen" class="hidden">
+  <h3>Lobby</h3>
+  <div id="lobbyGrid" class="grid"></div>
+  <button id="startBtn" class="hidden" onclick="start()">Start Voting</button>
+</div>
+
+<div id="voteScreen" class="hidden">
+  <div class="timer" id="timer"></div>
+  <div id="voteGrid" class="grid"></div>
+  <div id="voteButtons"></div>
+</div>
+
+<div id="resultScreen" class="hidden">
+  <h3 id="resultText"></h3>
+  <div id="resultGrid" class="grid"></div>
+  <button onclick="nextRound()">Next Round</button>
+</div>
+
+<script>
+// ================= FIREBASE =================
+firebase.initializeApp({
+  apiKey: "AIzaSyBVF5JW7IyGRvKrX7xwOTdEPg4019s3Bn0",
+  authDomain: "amongus1-test.firebaseapp.com",
+  databaseURL: "https://amongus1-test-default-rtdb.firebaseio.com",
+  projectId: "amongus1-test",
+  storageBucket: "amongus1-test.firebasestorage.app",
+  messagingSenderId: "345866430610",
+  appId: "1:345866430610:web:fb4c24d7533496e2751e4b"
+});
+const db=firebase.database();
+
+// ================= ROOM =================
+const roomId=location.hash.slice(1)||Math.random().toString(36).slice(2,7);
+location.hash=roomId;
+const room=`rooms/${roomId}`;
+
+// ================= STATE =================
+let me=null,isHost=false,players={},timerInt=null;
+
+// ================= CREWMATE SVG =================
+function crewmate(color){
+  return `
+  <svg class="crewmate" viewBox="0 0 200 300">
+    <ellipse cx="100" cy="150" rx="70" ry="90" fill="${color}"/>
+    <ellipse cx="130" cy="90" rx="45" ry="30" fill="#bdefff"/>
+    <ellipse cx="130" cy="90" rx="35" ry="20" fill="#e8f8ff"/>
+  </svg>`;
+}
+
+// ================= JOIN =================
+function join(){
+  const name=nameInput.value.trim();
+  if(!name) return alert("Enter name");
+  me=name;
+
+  db.ref(`${room}/phase`).once("value",s=>{
+    if(s.exists()&&s.val()!=="LOBBY"){
+      joinScreen.innerHTML="<h3>Room Closed</h3>";
+      return;
+    }
+
+    db.ref(`${room}/players/${name}`).set({
+      alive:true,
+      color:`hsl(${Math.random()*360},70%,60%)`
+    });
+    db.ref(`${room}/players/${name}`).onDisconnect().remove();
+
+    db.ref(`${room}/host`).once("value",h=>{
+      if(!h.exists()) db.ref(`${room}/host`).set(name);
+    });
+
+    db.ref(`${room}/phase`).set("LOBBY");
+    joinScreen.classList.add("hidden");
+    lobbyScreen.classList.remove("hidden");
+  });
+}
+
+// ================= HOST =================
+db.ref(`${room}/host`).on("value",s=>{
+  isHost=s.val()===me;
+  startBtn.classList.toggle("hidden",!isHost);
+});
+
+// ================= PLAYERS =================
+db.ref(`${room}/players`).on("value",s=>{
+  players=s.val()||{};
+  render(lobbyGrid);
+});
+
+function render(div){
+  div.innerHTML="";
+  Object.entries(players).forEach(([n,p])=>{
+    div.innerHTML+=`
+      <div class="card ${p.alive?"":"dead"}">
+        ${crewmate(p.color)}
+        <div>${n}</div>
+      </div>`;
+  });
+}
+
+// ================= START =================
+function start(){
+  if(!isHost) return;
+  db.ref(room).update({
+    phase:"VOTE",
+    time:15,
+    votes:{},
+    result:null
+  });
+  startTimer(15);
+}
+
+// ================= TIMER =================
+function startTimer(t){
+  clearInterval(timerInt);
+  db.ref(`${room}/time`).set(t);
+  timerInt=setInterval(()=>{
+    t--;
+    db.ref(`${room}/time`).set(t);
+    if(t<=0){
+      clearInterval(timerInt);
+      finalize();
+    }
+  },1000);
+}
+
+db.ref(`${room}/time`).on("value",s=>{
+  if(typeof s.val()==="number")
+    timer.innerText=`Time: ${s.val()}`;
+});
+
+// ================= PHASE =================
+db.ref(`${room}/phase`).on("value",s=>{
+  const p=s.val();
+  if(!p) return;
+
+  lobbyScreen.classList.add("hidden");
+  voteScreen.classList.add("hidden");
+  resultScreen.classList.add("hidden");
+
+  if(p==="VOTE"){
+    voteScreen.classList.remove("hidden");
+    render(voteGrid);
+    showVoteButtons();
+  }
+  if(p==="RESULT"){
+    resultScreen.classList.remove("hidden");
+    showResult();
+  }
+});
+
+// ================= VOTING =================
+function showVoteButtons(){
+  voteButtons.innerHTML="";
+  Object.entries(players).forEach(([n,p])=>{
+    if(n!==me && p.alive)
+      voteButtons.innerHTML+=`<button onclick="vote('${n}')">${n}</button>`;
+  });
+  voteButtons.innerHTML+=`<button onclick="vote('SKIP')">Skip</button>`;
+}
+
+function vote(t){
+  db.ref(`${room}/votes/${me}`).set(t);
+  voteButtons.innerHTML="<p>Voted</p>";
+}
+
+// ================= RESULT =================
+function finalize(){
+  if(!isHost) return;
+
+  db.ref(`${room}/votes`).once("value",s=>{
+    const v=s.val()||{},count={};
+    Object.values(v).forEach(x=>count[x]=(count[x]||0)+1);
+
+    let max=0,winner=null,tie=false;
+    Object.entries(count).forEach(([k,c])=>{
+      if(c>max){max=c;winner=k;tie=false}
+      else if(c===max){tie=true}
+    });
+
+    if(tie||winner==="SKIP") winner=null;
+    if(winner) players[winner].alive=false;
+
+    db.ref(room).update({
+      players,
+      result:{winner},
+      phase:"RESULT"
+    });
+  });
+}
+
+// ================= SHOW RESULT =================
+function showResult(){
+  resultGrid.innerHTML="";
+  Object.entries(players).forEach(([n,p])=>{
+    resultGrid.innerHTML+=`
+      <div class="card ${n===dbWinner?"eject":""}">
+        ${crewmate(p.color)}
+        <div>${n}</div>
+      </div>`;
+  });
+
+  db.ref(`${room}/result`).once("value",s=>{
+    const w=s.val()?.winner;
+    resultText.innerText=w?`${w} was ejected`:"No one was ejected";
+  });
+}
+
+// ================= NEXT ROUND =================
+function nextRound(){
+  if(!isHost) return;
+  db.ref(room).remove().then(()=>location.reload());
+}
+</script>
+
+</body>
+</html>
