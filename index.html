@@ -20,7 +20,10 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
 <style>
-body{margin:0;background:#0b132b;color:#fff;font-family:Arial;text-align:center}
+body{
+  margin:0;background:#0b132b;color:#fff;
+  font-family:Arial;text-align:center
+}
 .hidden{display:none}
 
 .grid{
@@ -28,12 +31,14 @@ body{margin:0;background:#0b132b;color:#fff;font-family:Arial;text-align:center}
   grid-template-columns:repeat(auto-fit,minmax(90px,1fr));
   gap:10px;padding:10px
 }
+
 .card{
   background:#1c2541;
   border-radius:12px;
   padding:8px;
   position:relative;
 }
+
 .vote-card{cursor:pointer;border:2px solid transparent}
 .vote-card.selected{border-color:#4caf50}
 
@@ -47,22 +52,25 @@ button,input{
   padding:12px;width:90%;max-width:280px;margin:6px
 }
 
-/* LAVA FALL */
+/* ===== LAVA (ONLY USED IN EJECT PHASE) ===== */
 .lava{
   position:absolute;
-  bottom:-40px;
+  bottom:-45px;
+  left:0;
   width:100%;
-  height:30px;
+  height:35px;
   background:linear-gradient(#ff4500,#b30000);
   border-radius:0 0 12px 12px;
 }
+
+/* FALL ANIMATION */
 .fall{
-  animation:fall 2.5s forwards ease-in;
+  animation:fall 2.8s forwards ease-in;
 }
 @keyframes fall{
   0%{transform:translateY(0)}
-  70%{transform:translateY(120px)}
-  100%{transform:translateY(220px) scale(0);opacity:0}
+  60%{transform:translateY(120px)}
+  100%{transform:translateY(260px) scale(0);opacity:0}
 }
 
 @media(max-width:600px){
@@ -100,7 +108,11 @@ firebase.initializeApp({
 const db=firebase.database();
 
 // ================= CONSTANTS =================
-const COLORS=["#e74c3c","#3498db","#2ecc71","#f1c40f","#9b59b6","#e67e22","#1abc9c","#ecf0f1","#7f8c8d","#e84393"];
+const COLORS=[
+  "#e74c3c","#3498db","#2ecc71","#f1c40f",
+  "#9b59b6","#e67e22","#1abc9c",
+  "#ecf0f1","#7f8c8d","#e84393"
+];
 
 // ================= ROOM =================
 const roomId=location.hash.slice(1)||Math.random().toString(36).slice(2,7);
@@ -137,7 +149,6 @@ function join(){
     });
 
     db.ref(`${room}/phase`).set("DISCUSS");
-
     joinScreen.classList.add("hidden");
     mainScreen.classList.remove("hidden");
   });
@@ -163,7 +174,6 @@ function render(){
       ${crewmate(p.color)}
       <div>${name}</div>
       <div class="vote-icons" id="votes-${name}"></div>
-      <div class="lava"></div>
     `;
     if(phase==="VOTE")card.onclick=()=>selectVote(name,card);
     grid.appendChild(card);
@@ -172,7 +182,10 @@ function render(){
   if(["VOTE","REVEAL"].includes(phase)){
     const skip=document.createElement("div");
     skip.className="card vote-card";
-    skip.innerHTML=`<div>SKIP</div><div class="vote-icons" id="votes-SKIP"></div>`;
+    skip.innerHTML=`
+      <div>SKIP</div>
+      <div class="vote-icons" id="votes-SKIP"></div>
+    `;
     if(phase==="VOTE")skip.onclick=()=>selectVote("SKIP",skip);
     grid.appendChild(skip);
   }
@@ -224,7 +237,7 @@ function startTimer(sec,next){
   },1000);
 }
 
-// ================= AUTO END WHEN ALL VOTED =================
+// ================= AUTO END =================
 function watchAutoEnd(){
   if(!isHost)return;
   db.ref(`${room}/votes`).on("value",snap=>{
@@ -239,7 +252,7 @@ function watchAutoEnd(){
 // ================= REVEAL =================
 function revealVotes(){
   db.ref(`${room}/phase`).set("REVEAL");
-  setTimeout(eject,12000); // 10–15 seconds
+  setTimeout(eject,12000);
 }
 
 // ================= RENDER REVEAL =================
@@ -248,7 +261,9 @@ function renderVoteReveal(){
     const votes=snap.val()||{};
     Object.entries(votes).forEach(([voter,target])=>{
       const el=document.getElementById(`votes-${target}`);
-      if(el)el.innerHTML+=crewmate(players[voter].color,"mini");
+      if(el){
+        el.innerHTML+=crewmate(players[voter].color,"mini");
+      }
     });
   });
 }
@@ -256,22 +271,28 @@ function renderVoteReveal(){
 // ================= EJECT =================
 function eject(){
   db.ref(`${room}/phase`).set("EJECT");
+
   db.ref(`${room}/votes`).once("value",snap=>{
     const counts={};
     Object.values(snap.val()||{}).forEach(v=>counts[v]=(counts[v]||0)+1);
     const arr=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+
     const winner=
       arr.length>1&&arr[0][1]===arr[1][1]?null:
       arr[0]?.[0]==="SKIP"?null:
       arr[0]?.[0];
 
     if(winner){
-      [...grid.children].forEach(c=>{
-        if(c.innerText.includes(winner)){
-          c.classList.add("fall");
+      [...grid.children].forEach(card=>{
+        if(card.innerText.includes(winner)){
+          const lava=document.createElement("div");
+          lava.className="lava";
+          card.appendChild(lava);
+          card.classList.add("fall");
         }
       });
     }
+
     setTimeout(()=>db.ref(`${room}/phase`).set("END"),3000);
   });
 }
@@ -288,5 +309,6 @@ function nextRound(){
   }
 }
 </script>
+
 </body>
 </html>
