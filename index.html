@@ -21,56 +21,75 @@
 
 <style>
 body{
-  margin:0;background:#0b132b;color:#fff;
-  font-family:Arial;text-align:center
+  margin:0;
+  background:#000;
+  color:#fff;
+  font-family:Arial;
+  text-align:center;
 }
 .hidden{display:none}
 
+/* ---------- GENERAL ---------- */
 .grid{
   display:grid;
   grid-template-columns:repeat(auto-fit,minmax(90px,1fr));
-  gap:10px;padding:10px
+  gap:10px;
+  padding:10px;
 }
-
 .card{
   background:#1c2541;
   border-radius:12px;
   padding:8px;
-  position:relative;
 }
-
 .vote-card{cursor:pointer;border:2px solid transparent}
 .vote-card.selected{border-color:#4caf50}
 
 .crewmate{width:50px;margin:auto}
-.mini{width:16px;display:inline-block;margin:2px}
+.mini{width:16px;margin:2px}
 .vote-icons{margin-top:4px}
-
 .timer{font-size:18px;color:#ffd166}
 
 button,input{
-  padding:12px;width:90%;max-width:280px;margin:6px
+  padding:12px;
+  width:90%;
+  max-width:280px;
+  margin:6px;
 }
 
-/* ===== LAVA (ONLY USED IN EJECT PHASE) ===== */
-.lava{
+/* ---------- CINEMATIC ---------- */
+#cinematic{
+  position:fixed;
+  inset:0;
+  background:#000;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+}
+
+#cinematic .crew{
+  width:120px;
+  animation:drop 4s forwards ease-in;
+}
+
+#lava{
   position:absolute;
-  bottom:-45px;
-  left:0;
+  bottom:0;
   width:100%;
-  height:35px;
-  background:linear-gradient(#ff4500,#b30000);
-  border-radius:0 0 12px 12px;
+  height:120px;
+  background:linear-gradient(#ff6a00,#b30000);
+  animation:bubble 1.2s infinite alternate;
 }
 
-/* FALL ANIMATION */
-.fall{
-  animation:fall 2.8s forwards ease-in;
+@keyframes drop{
+  0%{transform:translateY(-200px)}
+  60%{transform:translateY(0)}
+  100%{transform:translateY(400px) scale(0.2);opacity:0}
 }
-@keyframes fall{
-  0%{transform:translateY(0)}
-  60%{transform:translateY(120px)}
-  100%{transform:translateY(260px) scale(0);opacity:0}
+
+@keyframes bubble{
+  from{filter:brightness(1)}
+  to{filter:brightness(1.4)}
 }
 
 @media(max-width:600px){
@@ -81,7 +100,7 @@ button,input{
 
 <body>
 
-<h2>🚨 Emergency Meeting</h2>
+<h2 id="title">🚨 Emergency Meeting</h2>
 
 <div id="joinScreen">
   <input id="nameInput" placeholder="Enter name">
@@ -93,6 +112,8 @@ button,input{
   <div id="grid" class="grid"></div>
   <div id="action"></div>
 </div>
+
+<div id="cinematic" class="hidden"></div>
 
 <script>
 // ================= FIREBASE =================
@@ -122,7 +143,7 @@ const room=`rooms/${roomId}`;
 let me=null,isHost=false,players={},phase="DISCUSS";
 let selectedVote=null,timerInt=null;
 
-// ================= CREWMATE =================
+// ================= CREWMATE SVG =================
 function crewmate(color,cls="crewmate"){
   return `
   <svg class="${cls}" viewBox="0 0 200 300">
@@ -155,7 +176,7 @@ function join(){
 }
 
 // ================= LISTENERS =================
-db.ref(`${room}/players`).on("value",s=>{players=s.val()||{};render()});
+db.ref(`${room}/players`).on("value",s=>players=s.val()||{});
 db.ref(`${room}/host`).on("value",s=>isHost=s.val()===me);
 db.ref(`${room}/phase`).on("value",s=>{phase=s.val();render()});
 db.ref(`${room}/time`).on("value",s=>{
@@ -166,6 +187,13 @@ db.ref(`${room}/time`).on("value",s=>{
 function render(){
   grid.innerHTML="";
   action.innerHTML="";
+  cinematic.classList.add("hidden");
+  mainScreen.classList.remove("hidden");
+
+  if(phase==="EJECT_CINEMATIC"){
+    playCinematic();
+    return;
+  }
 
   Object.entries(players).forEach(([name,p])=>{
     const card=document.createElement("div");
@@ -182,10 +210,7 @@ function render(){
   if(["VOTE","REVEAL"].includes(phase)){
     const skip=document.createElement("div");
     skip.className="card vote-card";
-    skip.innerHTML=`
-      <div>SKIP</div>
-      <div class="vote-icons" id="votes-SKIP"></div>
-    `;
+    skip.innerHTML=`<div>SKIP</div><div class="vote-icons" id="votes-SKIP"></div>`;
     if(phase==="VOTE")skip.onclick=()=>selectVote("SKIP",skip);
     grid.appendChild(skip);
   }
@@ -252,7 +277,7 @@ function watchAutoEnd(){
 // ================= REVEAL =================
 function revealVotes(){
   db.ref(`${room}/phase`).set("REVEAL");
-  setTimeout(eject,12000);
+  setTimeout(()=>db.ref(`${room}/phase`).set("EJECT_CINEMATIC"),12000);
 }
 
 // ================= RENDER REVEAL =================
@@ -268,9 +293,11 @@ function renderVoteReveal(){
   });
 }
 
-// ================= EJECT =================
-function eject(){
-  db.ref(`${room}/phase`).set("EJECT");
+// ================= CINEMATIC =================
+function playCinematic(){
+  mainScreen.classList.add("hidden");
+  cinematic.classList.remove("hidden");
+  cinematic.innerHTML="";
 
   db.ref(`${room}/votes`).once("value",snap=>{
     const counts={};
@@ -282,18 +309,20 @@ function eject(){
       arr[0]?.[0]==="SKIP"?null:
       arr[0]?.[0];
 
-    if(winner){
-      [...grid.children].forEach(card=>{
-        if(card.innerText.includes(winner)){
-          const lava=document.createElement("div");
-          lava.className="lava";
-          card.appendChild(lava);
-          card.classList.add("fall");
-        }
-      });
+    if(!winner){
+      cinematic.innerHTML="<h2>No one was ejected</h2>";
+      setTimeout(()=>db.ref(`${room}/phase`).set("END"),4000);
+      return;
     }
 
-    setTimeout(()=>db.ref(`${room}/phase`).set("END"),3000);
+    const color=players[winner].color;
+
+    cinematic.innerHTML=`
+      <div class="crew">${crewmate(color,"crew")}</div>
+      <div id="lava"></div>
+    `;
+
+    setTimeout(()=>db.ref(`${room}/phase`).set("END"),4500);
   });
 }
 
@@ -309,7 +338,6 @@ function nextRound(){
   }
 }
 </script>
-
 
 </body>
 </html>
