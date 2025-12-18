@@ -25,18 +25,18 @@ button,input{
 }
 .grid{
   display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(120px,1fr));
-  gap:10px;
-  padding:10px;
+  grid-template-columns:repeat(auto-fit,minmax(90px,1fr));
+  gap:8px;
+  padding:8px;
 }
 .card{
   background:#1c2541;
-  border-radius:14px;
-  padding:10px;
+  border-radius:12px;
+  padding:8px;
   position:relative;
 }
 .dead{opacity:0.35}
-.timer{color:#ffd166;font-size:20px;margin:10px}
+.timer{color:#ffd166;font-size:18px;margin:8px}
 
 .vote-card{
   cursor:pointer;
@@ -49,18 +49,18 @@ button,input{
   position:absolute;
   top:6px;
   right:8px;
-  font-size:18px;
+  font-size:16px;
   color:#4caf50;
 }
 
 .crewmate{
-  width:60px;
+  width:48px;
   margin:auto;
   animation:float 1.6s ease-in-out infinite;
 }
 @keyframes float{
   0%{transform:translateY(0)}
-  50%{transform:translateY(-6px)}
+  50%{transform:translateY(-5px)}
   100%{transform:translateY(0)}
 }
 .eject{
@@ -69,6 +69,11 @@ button,input{
 @keyframes eject{
   0%{transform:translate(0,0) scale(1);opacity:1}
   100%{transform:translate(120px,-180px) scale(0);opacity:0}
+}
+
+.vote-icons{
+  font-size:10px;
+  margin-top:4px;
 }
 </style>
 </head>
@@ -121,7 +126,7 @@ const room=`rooms/${roomId}`;
 // ================= STATE =================
 let me=null,isHost=false,players={},timerInt=null,selectedVote=null,finalized=false;
 
-// ================= CREWMATE SVG =================
+// ================= CREWMATE =================
 function crewmate(color){
   return `
   <svg class="crewmate" viewBox="0 0 200 300">
@@ -190,10 +195,12 @@ function start(){
     phase:"VOTE",
     time:15,
     votes:{},
-    result:null
+    result:null,
+    ready:{}
   });
   startTimer(15);
 }
+
 // ================= TIMER =================
 function startTimer(t){
   clearInterval(timerInt);
@@ -239,7 +246,6 @@ function renderVoteCards(){
   voteButtons.innerHTML="";
   selectedVote=null;
 
-  // 🔥 SELF-VOTE ENABLED: include your own card
   Object.entries(players).forEach(([n,p])=>{
     if(!p.alive) return;
 
@@ -269,7 +275,6 @@ function selectVote(target,card){
   card.classList.add("selected");
   card.querySelector(".tick").classList.remove("hidden");
   selectedVote=target;
-
   voteButtons.innerHTML=`<button onclick="submitVote()">Confirm Vote</button>`;
 }
 
@@ -282,15 +287,11 @@ function submitVote(){
 // ================= EARLY FINISH =================
 function watchVotesForEarlyFinish(){
   if(!isHost) return;
-
   db.ref(`${room}/votes`).on("value", snap=>{
     if(finalized) return;
-
     const votes=snap.val()||{};
     const aliveCount=Object.values(players).filter(p=>p.alive).length;
-    const votedCount=Object.keys(votes).length;
-
-    if(aliveCount>0 && votedCount>=aliveCount){
+    if(Object.keys(votes).length>=aliveCount){
       clearInterval(timerInt);
       finalize();
     }
@@ -310,7 +311,7 @@ function calculateWinner(votes){
 }
 
 function finalize(){
-  if(!isHost || finalized) return;
+  if(!isHost||finalized) return;
   finalized=true;
 
   db.ref(`${room}/votes`).off();
@@ -318,7 +319,6 @@ function finalize(){
   db.ref(`${room}/votes`).once("value",s=>{
     const votes=s.val()||{};
     const winner=calculateWinner(votes);
-
     if(winner) players[winner].alive=false;
 
     db.ref(room).update({
@@ -332,33 +332,59 @@ function finalize(){
 // ================= SHOW RESULT =================
 function showResult(){
   resultGrid.innerHTML="";
-  resultText.innerText="Loading...";
+  resultText.innerText="Votes revealed";
 
   Promise.all([
     db.ref(`${room}/players`).once("value"),
+    db.ref(`${room}/votes`).once("value"),
     db.ref(`${room}/result`).once("value")
-  ]).then(([pSnap,rSnap])=>{
+  ]).then(([pSnap,vSnap,rSnap])=>{
     const freshPlayers=pSnap.val()||{};
+    const votes=vSnap.val()||{};
     const winner=rSnap.val()?.winner||null;
 
+    const voteMap={};
+    Object.entries(votes).forEach(([voter,target])=>{
+      if(!voteMap[target]) voteMap[target]=[];
+      voteMap[target].push(voter);
+    });
+
     Object.entries(freshPlayers).forEach(([n,p])=>{
+      const icons=(voteMap[n]||[]).map(()=>`🧑`).join("");
       resultGrid.innerHTML+=`
-        <div class="card ${n===winner?"eject":""} ${!p.alive?"dead":""}">
+        <div class="card">
           ${crewmate(p.color)}
           <div>${n}</div>
+          <div class="vote-icons">${icons}</div>
         </div>`;
     });
 
-    resultText.innerText=winner
-      ? `${winner} was ejected`
-      : "No one was ejected (Skip / Tie)";
+    setTimeout(()=>{
+      resultText.innerText=winner
+        ? `${winner} was ejected`
+        : "No one was ejected";
+
+      if(winner){
+        [...resultGrid.children].forEach(c=>{
+          if(c.innerText.includes(winner)) c.classList.add("eject");
+        });
+      }
+    },7000);
   });
 }
 
 // ================= NEXT ROUND =================
 function nextRound(){
-  if(!isHost) return;
-  db.ref(room).remove().then(()=>location.reload());
+  db.ref(`${room}/ready/${me}`).set(true);
+
+  if(isHost){
+    db.ref(`${room}/ready`).on("value",snap=>{
+      const ready=snap.val()||{};
+      if(Object.keys(ready).length>=Object.keys(players).length){
+        db.ref(room).remove().then(()=>location.reload());
+      }
+    });
+  }
 }
 </script>
 
