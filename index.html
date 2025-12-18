@@ -121,7 +121,7 @@ const room=`rooms/${roomId}`;
 // ================= STATE =================
 let me=null,isHost=false,players={},timerInt=null,selectedVote=null;
 
-// ================= CREWMATE =================
+// ================= CREWMATE SVG =================
 function crewmate(color){
   return `
   <svg class="crewmate" viewBox="0 0 200 300">
@@ -138,7 +138,7 @@ function join(){
   me=name;
 
   db.ref(`${room}/phase`).once("value",s=>{
-    if(s.exists()&&s.val()!=="LOBBY"){
+    if(s.exists() && s.val()!=="LOBBY"){
       joinScreen.innerHTML="<h3>Room Closed</h3>";
       return;
     }
@@ -168,13 +168,13 @@ db.ref(`${room}/host`).on("value",s=>{
 // ================= PLAYERS =================
 db.ref(`${room}/players`).on("value",s=>{
   players=s.val()||{};
-  render(lobbyGrid);
+  renderLobby();
 });
 
-function render(div){
-  div.innerHTML="";
+function renderLobby(){
+  lobbyGrid.innerHTML="";
   Object.entries(players).forEach(([n,p])=>{
-    div.innerHTML+=`
+    lobbyGrid.innerHTML+=`
       <div class="card ${p.alive?"":"dead"}">
         ${crewmate(p.color)}
         <div>${n}</div>
@@ -277,7 +277,7 @@ function submitVote(){
   voteButtons.innerHTML="<p>VOTED</p>";
 }
 
-// ================= RESULT LOGIC =================
+// ================= RESULT CALCULATION =================
 function calculateWinner(votes){
   const counts={};
   Object.values(votes).forEach(v=>counts[v]=(counts[v]||0)+1);
@@ -309,17 +309,26 @@ function finalize(){
 // ================= SHOW RESULT =================
 function showResult(){
   resultGrid.innerHTML="";
-  db.ref(`${room}/result`).once("value",s=>{
-    const w=s.val()?.winner;
-    resultText.innerText=w?`${w} was ejected`:"No one was ejected";
+  resultText.innerText="Loading...";
 
-    Object.entries(players).forEach(([n,p])=>{
+  Promise.all([
+    db.ref(`${room}/players`).once("value"),
+    db.ref(`${room}/result`).once("value")
+  ]).then(([pSnap,rSnap])=>{
+    const freshPlayers=pSnap.val()||{};
+    const winner=rSnap.val()?.winner||null;
+
+    Object.entries(freshPlayers).forEach(([n,p])=>{
       resultGrid.innerHTML+=`
-        <div class="card ${n===w?"eject":""}">
+        <div class="card ${n===winner?"eject":""} ${!p.alive?"dead":""}">
           ${crewmate(p.color)}
           <div>${n}</div>
         </div>`;
     });
+
+    resultText.innerText=winner
+      ? `${winner} was ejected`
+      : "No one was ejected (Skip / Tie)";
   });
 }
 
