@@ -119,7 +119,7 @@ location.hash=roomId;
 const room=`rooms/${roomId}`;
 
 // ================= STATE =================
-let me=null,isHost=false,players={},timerInt=null,selectedVote=null;
+let me=null,isHost=false,players={},timerInt=null,selectedVote=null,finalized=false;
 
 // ================= CREWMATE SVG =================
 function crewmate(color){
@@ -185,6 +185,7 @@ function renderLobby(){
 // ================= START =================
 function start(){
   if(!isHost) return;
+  finalized=false;
   db.ref(room).update({
     phase:"VOTE",
     time:15,
@@ -225,6 +226,7 @@ db.ref(`${room}/phase`).on("value",s=>{
   if(p==="VOTE"){
     voteScreen.classList.remove("hidden");
     renderVoteCards();
+    watchVotesForEarlyFinish();
   }
   if(p==="RESULT"){
     resultScreen.classList.remove("hidden");
@@ -238,8 +240,9 @@ function renderVoteCards(){
   voteButtons.innerHTML="";
   selectedVote=null;
 
+  // 🔥 SELF-VOTE ENABLED: include your own card
   Object.entries(players).forEach(([n,p])=>{
-    if(!p.alive||n===me) return;
+    if(!p.alive) return;
 
     const card=document.createElement("div");
     card.className="card vote-card";
@@ -277,7 +280,25 @@ function submitVote(){
   voteButtons.innerHTML="<p>VOTED</p>";
 }
 
-// ================= RESULT CALCULATION =================
+// ================= EARLY FINISH =================
+function watchVotesForEarlyFinish(){
+  if(!isHost) return;
+
+  db.ref(`${room}/votes`).on("value", snap=>{
+    if(finalized) return;
+
+    const votes=snap.val()||{};
+    const aliveCount=Object.values(players).filter(p=>p.alive).length;
+    const votedCount=Object.keys(votes).length;
+
+    if(aliveCount>0 && votedCount>=aliveCount){
+      clearInterval(timerInt);
+      finalize();
+    }
+  });
+}
+
+// ================= RESULT LOGIC =================
 function calculateWinner(votes){
   const counts={};
   Object.values(votes).forEach(v=>counts[v]=(counts[v]||0)+1);
@@ -290,7 +311,10 @@ function calculateWinner(votes){
 }
 
 function finalize(){
-  if(!isHost) return;
+  if(!isHost || finalized) return;
+  finalized=true;
+
+  db.ref(`${room}/votes`).off();
 
   db.ref(`${room}/votes`).once("value",s=>{
     const votes=s.val()||{};
